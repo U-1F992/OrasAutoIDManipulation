@@ -19,7 +19,7 @@ using var serialPort = new SerialPort("COM6", 4800)
     RtsEnable = true
 };
 serialPort.Open();
-var whale = new WhaleController(serialPort, cancellationToken);
+var whale = new WhaleController(serialPort);
 
 using var videoCapture = new VideoCapture(1)
 {
@@ -81,14 +81,14 @@ do
     {
         // 30秒前にホーム画面に戻る
         Console.WriteLine("=====\nBack to home: {0}", DateTime.Now);
-        whale.Run(Sequences.reset).Wait();
+        whale.Run(Sequences.reset);
     });
     await mainWait.ContinueWith(_ =>
     {
         Console.WriteLine("=====\nStart: {0}", DateTime.Now);
         Console.WriteLine("target: {0}", waitTime.TotalMilliseconds);
         Console.WriteLine("elapsed: {0}", stopwatch.ElapsedMilliseconds);
-        whale.Run(Sequences.skipOpening_1).Wait();
+        whale.Run(Sequences.skipOpening_1);
 
         var discard = new Operation[] { }
             .Concat(Sequences.selectMale)
@@ -96,7 +96,7 @@ do
             .Concat(Sequences.discardName).ToArray();
         for (var i = 0; i < next.Advance; i++)
         {
-            whale.Run(discard).Wait();
+            whale.Run(discard);
         }
         var sequence = new Operation[] { }
             .Concat(Sequences.selectMale)
@@ -104,7 +104,7 @@ do
             .Concat(Sequences.confirmName)
             .Concat(Sequences.skipOpening_2)
             .Concat(Sequences.showTrainerCard).ToArray();
-        whale.Run(sequence).Wait();
+        whale.Run(sequence);
 
 #if DEBUG
         using var frame = video.CurrentFrame;
@@ -135,7 +135,7 @@ do
         {
             Console.Error.WriteLine(exception);
         }
-        await whale.Run(Sequences.reset);
+        whale.Run(Sequences.reset);
     }
     else
     {
@@ -145,15 +145,21 @@ do
 
 uint GetPivotSeed(WhaleController whale, VideoCaptureWrapper video, TessConfig tessConfig, uint pivotSeed = 0x0)
 {
-    var failed = false;
     var tids = new List<ushort>();
     var rectAroundID = new Rect(1112, 40, 112, 35);
     var stopwatch = new Stopwatch();
 
-    var getID = (Task _) =>
+    var count = 0;
+    var failed = false;
+    var getID = new TimerCallback(_ =>
     {
+        if (count > 3)
+        {
+            return;
+        }
+
         Console.WriteLine("=====\nelapsed: {0}", stopwatch.ElapsedMilliseconds);
-        whale.Run(Sequences.getID).Wait();
+        whale.Run(Sequences.getID);
         ushort id = 0;
         try
         {
@@ -167,30 +173,23 @@ uint GetPivotSeed(WhaleController whale, VideoCaptureWrapper video, TessConfig t
         Console.WriteLine("TID: {0}", id);
         tids.Add(id);
 
-        whale.Run(Sequences.reset).Wait();
-    };
+        whale.Run(Sequences.reset);
+        Interlocked.Increment(ref count);
+    });
 
     stopwatch.Start();
-    var tasks = Task.WhenAll
-    (
-        new LazyTimer(TimeSpan.FromMilliseconds(0)).Start().ContinueWith(getID),
-        new LazyTimer(TimeSpan.FromMilliseconds(180000)).Start().ContinueWith(getID),
-        new LazyTimer(TimeSpan.FromMilliseconds(360000)).Start().ContinueWith(getID),
-        new LazyTimer(TimeSpan.FromMilliseconds(540000)).Start().ContinueWith(getID),
-        new LazyTimer(TimeSpan.FromMilliseconds(720000)).Start().ContinueWith(_ =>
-        {
-            // 不正な入力を無視するためゲームをロードしておく
-            whale.Run(new Operation[]
-            {
-                new Operation(new KeySpecifier[] { KeySpecifier.A_Down }, TimeSpan.FromMilliseconds(200)),
-                new Operation(new KeySpecifier[] { KeySpecifier.A_Up }, TimeSpan.FromMilliseconds(9000))
-            }).Wait();
-        })
-    );
-    tasks.Wait();
+    using var timer = new Timer(getID, null, TimeSpan.Zero, TimeSpan.FromMinutes(3));
+    Thread.Sleep(TimeSpan.FromMinutes(3 * 4));
+    
+    whale.Run(new Operation[]
+    {
+        new Operation(new KeySpecifier[] { KeySpecifier.A_Down }, TimeSpan.FromMilliseconds(200)),
+        new Operation(new KeySpecifier[] { KeySpecifier.A_Up }, TimeSpan.FromMilliseconds(9000))
+    });
+
     if (failed)
     {
-        whale.Run(Sequences.reset).Wait();
+        whale.Run(Sequences.reset);
         throw new Exception("Failed to get ID more than once.");
     }
 
@@ -215,6 +214,7 @@ ushort GetCurrentID(VideoCaptureWrapper video, Rect rect, TessConfig tessConfig)
     var ocr = invert.GetOCRResult(tessConfig);
     if (!ushort.TryParse(ocr, out var result))
     {
+        frame.SaveImage("failed" + DateTime.Now.ToString("yyyyMMddHHmmssfff") + ".png");
         throw new Exception("Cannot get ID from current frame.");
     }
     return result;
