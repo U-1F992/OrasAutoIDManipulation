@@ -1,4 +1,4 @@
-using HogeiJunkyard;
+using Hogei;
 
 public static class Sequences
 {

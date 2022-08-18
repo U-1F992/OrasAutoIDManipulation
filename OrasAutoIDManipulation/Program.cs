@@ -2,7 +2,7 @@
 using System.IO.Ports;
 using System.Text;
 using OpenCvSharp;
-using HogeiJunkyard;
+using Hogei;
 
 Console.WriteLine("OrasAutoIDManipulation");
 ushort tid = 354;
