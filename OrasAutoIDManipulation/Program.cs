@@ -5,11 +5,9 @@ using OpenCvSharp;
 using Hogei;
 
 Console.WriteLine("OrasAutoIDManipulation");
-ushort tid = 354;
-ushort sid = 28394;
-
-var cancellationTokenSource = new CancellationTokenSource();
-var cancellationToken = cancellationTokenSource.Token;
+ushort targetTID = 354;
+ushort targetSID = 28394;
+uint pivotSeed = 0x7DA0B3A0;
 
 using var serialPort = new SerialPort("COM6", 4800)
 {
@@ -32,31 +30,82 @@ var tessConfig = new TessConfig("C:\\Program Files\\Tesseract-OCR\\tessdata\\", 
 
 await Task.Delay(1000);
 
-LazyTimer lazyTimer;
-Task mainWait;
-LazyTimer lazyTimer1;
-Task subWait;
 DateTime startTime;
 var stopwatch = new Stopwatch();
-uint pivotSeed = 0;
+
+(uint Seed, int Advance) next = (0, 0);
+TimeSpan waitTime = TimeSpan.Zero;
+
 ushort currentTID = 0;
+
+bool finished;
+var mainTimer = new TimerStopwatch(_ =>
+{
+    Console.WriteLine("=====\nStart: {0}", DateTime.Now);
+    Console.WriteLine("target: {0}", waitTime.TotalMilliseconds);
+    Console.WriteLine("elapsed: {0}", stopwatch.ElapsedMilliseconds);
+    whale.Run(Sequences.skipOpening_1);
+
+    var discard = new Operation[] { }
+        .Concat(Sequences.selectMale)
+        .Concat(Sequences.decideName_A)
+        .Concat(Sequences.discardName).ToArray();
+    for (var i = 0; i < next.Advance; i++)
+    {
+        whale.Run(discard);
+    }
+    var sequence = new Operation[] { }
+        .Concat(Sequences.selectMale)
+        .Concat(Sequences.decideName_Kirin)
+        .Concat(Sequences.confirmName)
+        .Concat(Sequences.skipOpening_2)
+        .Concat(Sequences.showTrainerCard).ToArray();
+    whale.Run(sequence);
+
+#if DEBUG
+    using var frame = video.CurrentFrame;
+    frame.SaveImage(DateTime.Now.ToString("yyyyMMddHHmmssfff") + ".png");
+#endif
+
+    try
+    {
+        currentTID = GetCurrentID(video, new Rect(1112, 40, 112, 35), tessConfig);
+        Console.WriteLine("TID: {0}", currentTID);
+    }
+    catch
+    {
+        Console.Error.WriteLine("Cannot get TID");
+        currentTID = (ushort)(targetTID + 1); // 目標IDとは異なる値
+    }
+
+    finished = true;
+}, null);
+var subTimer = new TimerStopwatch(_ =>
+{
+    // 30秒前にホーム画面に戻る
+    Console.WriteLine("=====\nBack to home: {0}", DateTime.Now);
+    whale.Run(Sequences.reset);
+}, null);
 
 do
 {
+    uint currentPivotSeed = 0;
+    
     do
     {
-        lazyTimer = new LazyTimer();
-        mainWait = lazyTimer.Start();
+        finished = false;
+        mainTimer.Reset();
+        subTimer.Reset();
+        stopwatch.Reset();
 
-        lazyTimer1 = new LazyTimer();
-        subWait = lazyTimer1.Start();
+        mainTimer.Start();
+        subTimer.Start();
 
         startTime = DateTime.Now;
-        stopwatch.Reset();
         stopwatch.Start();
         try
         {
-            pivotSeed = GetPivotSeed(whale, video, tessConfig, 0x66e01f63);
+            currentPivotSeed = GetPivotSeed(whale, video, tessConfig, pivotSeed);
             break;
         }
         catch (Exception exception)
@@ -66,63 +115,22 @@ do
         }
     } while (true);
 
-    var next = pivotSeed.GetNextInitialSeed(tid, sid, 750, TimeSpan.FromMilliseconds(800000));
-    var waitTime = TimeSpan.FromMilliseconds(
-        next.Seed > pivotSeed
-            ? next.Seed - pivotSeed
-            : (0x100000000 + next.Seed) - pivotSeed
+    next = currentPivotSeed.GetNextInitialSeed(targetTID, targetSID, 500, TimeSpan.FromMilliseconds(800000));
+    waitTime = TimeSpan.FromMilliseconds(
+        next.Seed > currentPivotSeed
+            ? next.Seed - currentPivotSeed
+            : (0x100000000 + next.Seed) - currentPivotSeed
     );
     Console.WriteLine("=====\nNext: {0:X}\nETA: {1}\nAdvance: {2}", next.Seed, startTime + waitTime, next.Advance);
 
-    lazyTimer.Submit(waitTime);
-    lazyTimer1.Submit(waitTime - TimeSpan.FromSeconds(30));
-
-    var backToHome = subWait.ContinueWith(_ =>
+    mainTimer.Submit(waitTime);
+    subTimer.Submit(waitTime - TimeSpan.FromSeconds(30));
+    while (!finished)
     {
-        // 30秒前にホーム画面に戻る
-        Console.WriteLine("=====\nBack to home: {0}", DateTime.Now);
-        whale.Run(Sequences.reset);
-    });
-    await mainWait.ContinueWith(_ =>
-    {
-        Console.WriteLine("=====\nStart: {0}", DateTime.Now);
-        Console.WriteLine("target: {0}", waitTime.TotalMilliseconds);
-        Console.WriteLine("elapsed: {0}", stopwatch.ElapsedMilliseconds);
-        whale.Run(Sequences.skipOpening_1);
-
-        var discard = new Operation[] { }
-            .Concat(Sequences.selectMale)
-            .Concat(Sequences.decideName_A)
-            .Concat(Sequences.discardName).ToArray();
-        for (var i = 0; i < next.Advance; i++)
-        {
-            whale.Run(discard);
-        }
-        var sequence = new Operation[] { }
-            .Concat(Sequences.selectMale)
-            .Concat(Sequences.decideName_Kirin)
-            .Concat(Sequences.confirmName)
-            .Concat(Sequences.skipOpening_2)
-            .Concat(Sequences.showTrainerCard).ToArray();
-        whale.Run(sequence);
-
-#if DEBUG
-        using var frame = video.CurrentFrame;
-        frame.SaveImage(DateTime.Now.ToString("yyyyMMddHHmmssfff") + ".png");
-#endif
-
-        try
-        {
-            currentTID = GetCurrentID(video, new Rect(1112, 40, 112, 35), tessConfig);
-            Console.WriteLine("TID: {0}", currentTID);
-        }
-        catch
-        {
-            Console.Error.WriteLine("Cannot get TID");
-            currentTID = (ushort)(tid + 1); // 目標IDとは異なる値
-        }
-    });
-    if (currentTID != tid)
+        Thread.Sleep(500);
+    }
+    
+    if (currentTID != targetTID)
     {
         try
         {
@@ -180,7 +188,7 @@ uint GetPivotSeed(WhaleController whale, VideoCaptureWrapper video, TessConfig t
     stopwatch.Start();
     using var timer = new Timer(getID, null, TimeSpan.Zero, TimeSpan.FromMinutes(3));
     Thread.Sleep(TimeSpan.FromMinutes(3 * 4));
-    
+
     whale.Run(new Operation[]
     {
         new Operation(new KeySpecifier[] { KeySpecifier.A_Down }, TimeSpan.FromMilliseconds(200)),
