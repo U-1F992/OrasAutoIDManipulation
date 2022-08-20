@@ -1,6 +1,4 @@
 ﻿using System.Diagnostics;
-using System.IO.Ports;
-using System.Text;
 using OpenCvSharp;
 using Hogei;
 
@@ -9,22 +7,20 @@ ushort targetTID = 354;
 ushort targetSID = 28394;
 uint pivotSeed = 0x7DA0B3A0;
 
-using var serialPort = new SerialPort("COM6", 4800)
-{
-    Encoding = Encoding.UTF8,
-    NewLine = "\r\n",
-    DtrEnable = true,
-    RtsEnable = true
-};
-serialPort.Open();
-var whale = new WhaleController(serialPort);
+var resolve = (string fileName) => Path.Join(AppContext.BaseDirectory, fileName);
 
-using var videoCapture = new VideoCapture(1)
+var databaseDir = resolve("database");
+if (!Directory.Exists(databaseDir))
 {
-    FrameWidth = 1920,
-    FrameHeight = 1080
-};
-var video = new VideoCaptureWrapper(videoCapture, new Size(640, 360));
+    throw new DirectoryNotFoundException(string.Format("Database not found. {0}", databaseDir));
+}
+
+using var serialPort = SerialPortFactory.FromJson(resolve("serialport.config.json"));
+serialPort.Open();
+var whale = new Whale(serialPort);
+
+using var videoCapture = VideoCaptureFactory.FromJson(resolve("videocapture.config.json"));
+var preview = new Preview(videoCapture, new Size(960, 540));
 
 var tessConfig = new TessConfig("C:\\Program Files\\Tesseract-OCR\\tessdata\\", "eng", "0123456789", 3, 7);
 
@@ -63,13 +59,14 @@ var mainTimer = new TimerStopwatch(_ =>
     whale.Run(sequence);
 
 #if DEBUG
-    using var frame = video.CurrentFrame;
+    using var frame = preview.CurrentFrame;
     frame.SaveImage(DateTime.Now.ToString("yyyyMMddHHmmssfff") + ".png");
 #endif
 
     try
     {
-        currentTID = GetCurrentID(video, new Rect(1112, 40, 112, 35), tessConfig);
+        using var currentFrame = preview.CurrentFrame;
+        currentTID = GetCurrentID(currentFrame, new Rect(1112, 40, 112, 35), tessConfig);
         Console.WriteLine("TID: {0}", currentTID);
     }
     catch
@@ -105,7 +102,7 @@ do
         stopwatch.Start();
         try
         {
-            currentPivotSeed = GetPivotSeed(whale, video, tessConfig, pivotSeed);
+            currentPivotSeed = GetPivotSeed(whale, preview, tessConfig, pivotSeed);
             break;
         }
         catch (Exception exception)
@@ -151,7 +148,7 @@ do
     }
 } while (true);
 
-uint GetPivotSeed(WhaleController whale, VideoCaptureWrapper video, TessConfig tessConfig, uint pivotSeed = 0x0)
+uint GetPivotSeed(Whale whale, Preview preview, TessConfig tessConfig, uint pivotSeed = 0x0)
 {
     var tids = new List<ushort>();
     var rectAroundID = new Rect(1112, 40, 112, 35);
@@ -171,7 +168,8 @@ uint GetPivotSeed(WhaleController whale, VideoCaptureWrapper video, TessConfig t
         ushort id = 0;
         try
         {
-            id = GetCurrentID(video, rectAroundID, tessConfig);
+            using var currentFrame = preview.CurrentFrame;
+            id = GetCurrentID(currentFrame, rectAroundID, tessConfig);
         }
         catch (Exception exception)
         {
@@ -206,10 +204,9 @@ uint GetPivotSeed(WhaleController whale, VideoCaptureWrapper video, TessConfig t
     return first.Seed;
 }
 
-ushort GetCurrentID(VideoCaptureWrapper video, Rect rect, TessConfig tessConfig)
+ushort GetCurrentID(Mat mat, Rect rect, TessConfig tessConfig)
 {
-    using var frame = video.CurrentFrame;
-    using var id = frame.Clone(rect);
+    using var id = mat.Clone(rect);
     using var gray = id.CvtColor(ColorConversionCodes.BGR2GRAY);
     using var binary = gray.Threshold(0, 255, ThresholdTypes.Otsu);
     using var invert = new Mat();
@@ -222,7 +219,7 @@ ushort GetCurrentID(VideoCaptureWrapper video, Rect rect, TessConfig tessConfig)
     var ocr = invert.GetOCRResult(tessConfig);
     if (!ushort.TryParse(ocr, out var result))
     {
-        frame.SaveImage("failed" + DateTime.Now.ToString("yyyyMMddHHmmssfff") + ".png");
+        mat.SaveImage("failed" + DateTime.Now.ToString("yyyyMMddHHmmssfff") + ".png");
         throw new Exception("Cannot get ID from current frame.");
     }
     return result;

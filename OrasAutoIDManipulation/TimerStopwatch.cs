@@ -15,10 +15,6 @@ public class TimerStopwatch : IDisposable
         {
             throw new ObjectDisposedException("TimerStopwatch");
         }
-        if (!stopwatch.IsRunning)
-        {
-            throw new InvalidOperationException("Stopwatch is not running.");
-        }
 
         var actual =
             timeout == Timeout.InfiniteTimeSpan
@@ -38,10 +34,6 @@ public class TimerStopwatch : IDisposable
         if (disposedValue)
         {
             throw new ObjectDisposedException("TimerStopwatch");
-        }
-        if (stopwatch.IsRunning)
-        {
-            throw new InvalidOperationException("Stopwatch is already running.");
         }
 
         stopwatch.Start();
