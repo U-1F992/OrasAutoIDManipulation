@@ -80,7 +80,7 @@ public static class PokemonSixGenRNGExtensions
     /// <param name="maxAdvance"></param>
     /// <param name="elapsedTime"></param>
     /// <returns></returns>
-    public async static Task<(uint Seed, int Advance)> GetNextInitialSeed(this uint pivotSeed, (ushort tid, ushort sid) targetID, int maxAdvance, TimeSpan elapsedTime)
+    public async static Task<(uint Seed, int Advance)> GetNextInitialSeed(this uint pivotSeed, (ushort tid, ushort sid) targetID, int minAdvance, int maxAdvance, TimeSpan elapsedTime)
     {
         return await Task.Run(() =>
         {
@@ -101,7 +101,7 @@ public static class PokemonSixGenRNGExtensions
                     var tinyMT = new TinyMT(seed);
                     tinyMT.Advance(13);
 
-                    for (var advance = 0; advance < maxAdvance + 1; advance++)
+                    for (var advance = minAdvance; advance < maxAdvance + 1; advance++)
                     {
                         if (tinyMT.GetID() != targetID)
                         {

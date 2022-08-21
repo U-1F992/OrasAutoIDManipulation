@@ -41,6 +41,10 @@ public static class MatAnalysisExtensions
     /// <returns></returns>
     public static int GetPosition(this Mat mat)
     {
+        if (mat.Empty())
+        {
+            throw new Exception("mat is null.");
+        }
         var paths = Directory.GetFiles(Path.Join(AppContext.BaseDirectory, "masks"))
                         .Where(path => Path.GetExtension(path) == ".png");
         if (paths.Count() != 8)
@@ -48,7 +52,7 @@ public static class MatAnalysisExtensions
             throw new Exception("Mask images must exist from 0.png to 7.png.");
         }
         var masks = paths.Select(path => new Mat(path)).ToList();
-        var size = masks.First().Size();
+        var size = new Size(341, 341); //masks.First().Size();
         using var resized = mat.Resize(size);
 
         // ピンク0xc72a74との差の平均を算出する
@@ -68,7 +72,7 @@ public static class MatAnalysisExtensions
             Cv2.BitwiseAnd(reference2, mask, ref2_masked);
 
             var rate = masked.CompareColor(ref_masked) * 0.95 + masked.CompareColor(ref_masked) * 0.05;
-            Console.WriteLine("{0}, {1}", index, rate);
+            // Console.WriteLine("{0}, {1}", index, rate);
 
 // #if DEBUG
 //             masked.SaveImage(index + ".png");

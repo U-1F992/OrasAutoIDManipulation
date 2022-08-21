@@ -25,7 +25,7 @@ public static class Sequences
         new Operation(Key_A_Down, standardDuration),
         new Operation(Key_A_Up, TimeSpan.FromMilliseconds(5000)),
         new Operation(Key_A_Down, standardDuration),
-        new Operation(Key_A_Up, TimeSpan.FromMilliseconds(4000)),
+        new Operation(Key_A_Up, TimeSpan.FromMilliseconds(5000)),
         // タイトル
         new Operation(Key_A_Down, standardDuration),
         new Operation(Key_A_Up, TimeSpan.FromMilliseconds(11500)),

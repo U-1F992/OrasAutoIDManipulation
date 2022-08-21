@@ -12,4 +12,8 @@
     <PackageReference Include="PokemonPRNG" Version="3.2.0" />
   </ItemGroup>
 
+  <ItemGroup>
+    <None Update="masks\*" CopyToOutputDirectory="Always" />
+  </ItemGroup>
+
 </Project>

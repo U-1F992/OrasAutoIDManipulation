@@ -50,16 +50,14 @@ public static class PreviewExtensions
         var cancellationToken1 = cancellationTokenSource1.Token;
         var task = Task.Run(() =>
         {
-            var sizeToShow = new Size(center.Width * 50, center.Height * 50);
-
             using var window = new Window();
             while (true)
             {
                 cancellationToken1.ThrowIfCancellationRequested();
 
                 using var currentFrame = preview.CurrentFrame;
-                using var trimmed = currentFrame.Clone(center);
-                using var toShow = trimmed.Resize(sizeToShow);
+                using var trimmed = currentFrame.Clone(rect);
+                using var toShow = trimmed.Resize(new Size(rect.Size.Width * 5, rect.Size.Height * 5));
 
                 window.ShowImage(toShow);
                 Cv2.WaitKey(1);
@@ -89,7 +87,7 @@ public static class PreviewExtensions
         // 消えるまで
         var ret = await Task.Run(() =>
         {
-            var ret = new Mat();
+            var ret = new Mat(rect.Height, rect.Width, type, Scalar.Black);
             while (true)
             {
                 cancellationToken.ThrowIfCancellationRequested();
@@ -112,7 +110,9 @@ public static class PreviewExtensions
         cancellationTokenSource1.Cancel();
         try { await task; }
         catch (OperationCanceledException) { }
-
-        return ret;
+#if DEBUG
+        ret.SaveImage(DateTime.Now.ToString("yyyyMMddHHmmssfff") + ".png");
+#endif
+        return ret.Clone();
     }
 }
