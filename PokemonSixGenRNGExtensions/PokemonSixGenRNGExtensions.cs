@@ -38,7 +38,7 @@ public static class PokemonSixGenRNGExtensions
     {
         var ret = new List<(uint Seed, List<long> Gaps)>();
         var baseDirectory = Path.Combine(AppContext.BaseDirectory, "database");
-        
+
         // 各TIDが出るseedの一覧
         var databases = new List<uint[]>();
         foreach (var tid in tids)
@@ -80,65 +80,51 @@ public static class PokemonSixGenRNGExtensions
     /// <param name="maxAdvance"></param>
     /// <param name="elapsedTime"></param>
     /// <returns></returns>
-    public static (uint Seed, int Advance) GetNextInitialSeed(this uint pivotSeed, ushort tid, ushort sid, int maxAdvance, TimeSpan elapsedTime)
+    public async static Task<(uint Seed, int Advance)> GetNextInitialSeed(this uint pivotSeed, (ushort tid, ushort sid) targetID, int maxAdvance, TimeSpan elapsedTime)
     {
-        var dictionary = new Dictionary<uint, int>();
-
-        // 上5桁を順次、下3桁を平行処理で探索する
-        for (int higher = 0; higher < 0x100000; higher++)
+        return await Task.Run(() =>
         {
-            Parallel.For(0, 0x1000, lower =>
+            var dictionary = new Dictionary<uint, int>();
+
+            // 上5桁を順次、下3桁を平行処理で探索する
+            for (int higher = 0; higher < 0x100000; higher++)
             {
-                long incremental = ((uint)higher << 12) + (uint)lower;
-                if (incremental < elapsedTime.TotalMilliseconds)
+                Parallel.For(0, 0x1000, lower =>
                 {
-                    return;
-                }
+                    long incremental = ((uint)higher << 12) + (uint)lower;
+                    if (incremental < elapsedTime.TotalMilliseconds)
+                    {
+                        return;
+                    }
 
-                uint seed = (uint)((pivotSeed + incremental) & 0xFFFFFFFF);
-                var tinyMT = new TinyMT(seed);
-                tinyMT.Advance(13);
+                    uint seed = (uint)((pivotSeed + incremental) & 0xFFFFFFFF);
+                    var tinyMT = new TinyMT(seed);
+                    tinyMT.Advance(13);
 
-                for (var advance = 0; advance < maxAdvance + 1; advance++)
+                    for (var advance = 0; advance < maxAdvance + 1; advance++)
+                    {
+                        if (tinyMT.GetID() != targetID)
+                        {
+                            continue;
+                        }
+                        lock (dictionary)
+                        {
+                            dictionary.Add(seed, advance);
+                        }
+                        return;
+                    }
+                });
+
+                if (dictionary.Count != 0)
                 {
-                    if (tinyMT.GetID() != (tid, sid))
-                    {
-                        continue;
-                    }
-                    lock (dictionary)
-                    {
-                        dictionary.Add(seed, advance);
-                    }
-                    return;
+                    break;
                 }
-            });
-
+            }
             if (dictionary.Count == 0)
             {
-                continue;
+                throw new Exception("No such ID pair.");
             }
-
-            var closest = dictionary.OrderBy(pair => pair.Key).First();
-            return (closest.Key, closest.Value);
-        }
-        throw new Exception("No such ID pair");
-    }
-    public static void Advance(this TinyMT tinyMT, int n) { tinyMT.Advance((uint)n); }
-    public static void Advance(this TinyMT tinyMT, uint n)
-    {
-        for (var i = 0; i < n; i++)
-        {
-            tinyMT.Advance();
-        }
-    }
-    public static ushort GenerateFirstTID(this TinyMT tinyMT)
-    {
-        tinyMT.Advance(13);
-        return (ushort)(tinyMT.GetRand() & 0x0000FFFF);
-    }
-    public static (ushort tid, ushort sid) GetID(this TinyMT tinyMT)
-    {
-        uint rand = tinyMT.GetRand();
-        return ((ushort)(rand & 0x0000FFFF), (ushort)((rand & 0xFFFF0000) >> 16));
+            return dictionary.OrderBy(pair => pair.Key).Select(pair => (pair.Key, pair.Value)).First();
+        });
     }
 }

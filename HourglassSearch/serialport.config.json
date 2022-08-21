@@ -1,0 +1,7 @@
+{
+    "portName": "COM6",
+    "dtrEnable": true,
+    "rtsEnable": true,
+    "encoding": "UTF8",
+    "newLine": "\r\n"
+}
