@@ -9,8 +9,6 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "OrasAutoIDManipulation", "O
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "PokemonSixGenRNGExtensions", "PokemonSixGenRNGExtensions\PokemonSixGenRNGExtensions.csproj", "{BABD8BF4-6866-437E-B44A-AD28CFEB0969}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "HourglassSearch", "HourglassSearch\HourglassSearch.csproj", "{3ACC1F5A-4667-4242-BFBA-47862CE92F9F}"
-EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU

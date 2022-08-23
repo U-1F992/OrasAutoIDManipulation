@@ -14,11 +14,14 @@ public static class Sequences
     static KeySpecifier[] Key_Home_Up = new KeySpecifier[] { KeySpecifier.L_Up, KeySpecifier.R_Up, KeySpecifier.Z_Up, KeySpecifier.Start_Up };
     static TimeSpan standardDuration = TimeSpan.FromMilliseconds(200);
 
-    public static Operation[] skipOpening_1 = new Operation[]
+    public static Operation[] load = new Operation[]
     {
         // 起動
         new Operation(Key_A_Down, standardDuration),
         new Operation(Key_A_Up, TimeSpan.FromMilliseconds(9000)),
+    };
+    public static Operation[] skipOpening_1 = new Operation[]
+    {
         // 言語設定
         new Operation(Key_A_Down, standardDuration),
         new Operation(Key_A_Up, TimeSpan.FromMilliseconds(1500)),
@@ -185,6 +188,7 @@ public static class Sequences
         new Operation(Key_A_Up, TimeSpan.FromMilliseconds(5000)),
     };
     public static Operation[] getID = new Operation[] {}
+        .Concat(load)
         .Concat(skipOpening_1)
         .Concat(selectMale)
         .Concat(decideName_A)
