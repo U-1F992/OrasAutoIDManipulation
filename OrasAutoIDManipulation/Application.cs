@@ -39,7 +39,7 @@ class Application
             TimeSpan waitTime = TimeSpan.Zero;
             var stopwatch = new Stopwatch();
 
-            bool finished = false;
+            var finished = false;
             using var mainTimer = new TimerStopwatch(async _ =>
             {
                 // ゲームを起動する
@@ -69,15 +69,17 @@ class Application
             do
             {
                 startTime = DateTime.Now;
-                try
+                var pivot = await GetPivotSeedGapsPair(aroundID, 180000, tolerance);
+                Console.WriteLine();
+                Console.WriteLine("Seed     Gaps");
+                Console.WriteLine("----     ----");
+                pivot.ForEach(pair =>
                 {
-                    pivotSeeds = await GetPivotSeeds(aroundID, tolerance);
-                }
-                catch (Exception exception)
-                {
-                    Console.Error.WriteLine(exception);
-                    pivotSeeds = new List<uint>();
-                }
+                    Console.WriteLine("{0,8:X} {1}", pair.Seed, string.Join(",", pair.Gaps));
+                });
+
+                pivotSeeds = pivot.Select(pair => pair.Seed).ToList();
+
             } while (pivotSeeds.Count != 1);
             var pivotSeed = pivotSeeds[0];
 
@@ -167,12 +169,10 @@ class Application
                     .Concat(Sequences.showTrainerCard).ToArray()
             );
 
+            using var currentFrame = preview.CurrentFrame;      
 #if DEBUG
-            using var frame = preview.CurrentFrame;
-            frame.SaveImage(DateTime.Now.ToString("yyyyMMddHHmmssfff") + ".png");
+            currentFrame.SaveImage(DateTime.Now.ToString("yyyyMMddHHmmssfff") + ".png");
 #endif
-
-            using var currentFrame = preview.CurrentFrame;
             try
             {
                 result = currentFrame.GetCurrentID(aroundID, tessConfig);
@@ -192,61 +192,74 @@ class Application
         } while (result != targetID.tid);
     }
 
-    async Task<List<uint>> GetPivotSeeds(Rect aroundID, int tolerance)
+    /// <summary>
+    /// interval±tolerance(ms)間隔で4回起動して、基準seedと誤差を取得する
+    /// </summary>
+    /// <param name="Seed"></param>
+    /// <param name="aroundID"></param>
+    /// <param name="interval"></param>
+    /// <param name="tolerance"></param>
+    /// <returns></returns>
+    async Task<List<(uint Seed, List<long> Gaps)>> GetPivotSeedGapsPair(Rect aroundID, int interval, int tolerance)
     {
-        var tids = new List<ushort>();
-        var stopwatch = new Stopwatch();
+        List<ushort> tids;
+    
+        Console.WriteLine();
+        Console.WriteLine("Elapsed    TID");
+        Console.WriteLine("-------    ---");
 
-        var count = 0;
-        var failed = false;
-        var getID = new TimerCallback(async _ =>
+        do
         {
-            if (count > 3)
-            {
-                return;
-            }
+            tids = new();
 
-            Console.WriteLine("=====\nelapsed: {0}", stopwatch.ElapsedMilliseconds);
-            await whale.RunAsync(Sequences.getID);
-            ushort id = 0;
+            var cancellationTokenSource = new CancellationTokenSource();
+            var cancellationToken = cancellationTokenSource.Token;
+
+            var stopwatch = new Stopwatch();
+            var count = 0;
+            var getID = new TimerCallback(async _ =>
+            {
+                if (count > 3)
+                {
+                    return;
+                }
+
+                var elapsed = stopwatch.ElapsedMilliseconds;
+                await whale.RunAsync(Sequences.getID);
+                ushort id = 0;
+                try
+                {
+                    using var currentFrame = preview.CurrentFrame;
+                    id = currentFrame.GetCurrentID(aroundID, tessConfig);
+                }
+                catch (Exception exception)
+                {
+                    Console.Error.WriteLine(exception);
+
+                    count = int.MaxValue;
+                    cancellationTokenSource.Cancel();
+                }
+                Console.WriteLine("{0,10} {1}", elapsed, id);
+                tids.Add(id);
+
+                await whale.RunAsync(Sequences.reset);
+                Interlocked.Increment(ref count);
+            });
+
+            stopwatch.Start();
+            using var timer = new Timer(getID, null, TimeSpan.Zero, TimeSpan.FromMilliseconds(interval));
             try
             {
-                using var currentFrame = preview.CurrentFrame;
-                id = currentFrame.GetCurrentID(aroundID, tessConfig);
+                await Task.Delay(TimeSpan.FromMilliseconds(interval * 4), cancellationToken);
             }
-            catch (Exception exception)
+            catch (OperationCanceledException)
             {
-                failed = true;
-                Console.Error.WriteLine(exception);
+                Console.Error.WriteLine("=== Failed to get ID. ===");
+                await whale.RunAsync(Sequences.reset);
             }
-            Console.WriteLine("TID: {0}", id);
-            tids.Add(id);
+        } while (tids.Count() != 4);
 
-            await whale.RunAsync(Sequences.reset);
-            Interlocked.Increment(ref count);
-        });
-
-        stopwatch.Start();
-        using var timer = new Timer(getID, null, TimeSpan.Zero, TimeSpan.FromMinutes(3));
-        await Task.Delay(TimeSpan.FromMinutes(3 * 4));
-
-        if (failed)
-        {
-            await whale.RunAsync(Sequences.reset);
-            throw new Exception("Failed to get ID more than once.");
-        }
-
-        var results = tids.GetPivotSeedsFromTIDs(180000, tolerance);
-
-        Console.WriteLine();
-        Console.WriteLine("Seed     Gaps");
-        Console.WriteLine("----     ----");
-        results.ForEach(pair =>
-        {
-            Console.WriteLine("{0,8:X} {1}", pair.Seed, string.Join(",", pair.Gaps));
-        });
-
-        return results.Select(pair => pair.Seed).ToList();
+        return tids.GetPivotSeedsFromTIDs(interval, tolerance);
     }
     List<uint> GetInitialSeedCandidates(uint targetSeed, int tolerance)
     {
@@ -257,6 +270,12 @@ class Application
         }
         return candidates;
     }
+    /// <summary>
+    /// 「きみは　おとこのこ？」画面からobservations回針読みした結果を返す
+    /// </summary>
+    /// <param name="aroundIndicator"></param>
+    /// <param name="observations"></param>
+    /// <returns></returns>
     async Task<List<int>> GetIndicatorResults(Rect aroundIndicator, int observations)
     {
         var list = new List<int>();
