@@ -66,7 +66,7 @@ public class TimerStopwatch : IDisposable
         }
     }
 
-    void IDisposable.Dispose()
+    public void Dispose()
     {
         Dispose(disposing: true);
         GC.SuppressFinalize(this);

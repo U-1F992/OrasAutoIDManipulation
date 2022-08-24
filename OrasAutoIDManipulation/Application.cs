@@ -40,7 +40,7 @@ class Application
             var stopwatch = new Stopwatch();
 
             var finished = false;
-            using var mainTimer = new TimerStopwatch(async _ =>
+            var loadGame = new TimerCallback(async _ =>
             {
                 // ゲームを起動する
                 Console.WriteLine();
@@ -50,7 +50,8 @@ class Application
 
                 await whale.RunAsync(Sequences.load);
                 finished = true;
-            }, null);
+            });
+            var mainTimer = new TimerStopwatch(loadGame, null);
             using var subTimer = new TimerStopwatch(async _ =>
             {
                 // 起動直前にホーム画面に戻る
@@ -100,10 +101,12 @@ class Application
                 // ゲームのロードを待機
                 mainTimer.Submit(waitTime);
                 subTimer.Submit(waitTime - TimeSpan.FromSeconds(25));
+                using var nextTimer = new TimerStopwatch(loadGame, null);
                 while (!finished)
                 {
-                    await Task.Delay(500);
+                    await Task.Delay(1);
                 }
+                nextTimer.Start();
                 await whale.RunAsync(Sequences.skipOpening_1);
 
                 // 針読み結果
@@ -141,6 +144,7 @@ class Application
                 {
                     // 1つに絞れていれば、それを基準seedとして次のseedを探す
                     pivotSeed = initialSeeds.First();
+                    mainTimer = nextTimer;
                 }
             } while (true);
             if (continueFlag)
@@ -189,6 +193,9 @@ class Application
                 Console.Error.WriteLine(exception);
             }
             await whale.RunAsync(Sequences.reset);
+            
+            mainTimer.Dispose();
+
         } while (result != targetID.tid);
     }
 
