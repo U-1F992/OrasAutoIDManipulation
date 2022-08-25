@@ -16,7 +16,7 @@ serialPort.Open();
 var whale = new Whale(serialPort);
 
 using var videoCapture = VideoCaptureFactory.FromJson(resolve("videocapture.config.json"));
-var preview = new Preview(videoCapture, new Size(960, 540));
+var preview = new Preview(videoCapture);//, new Size(960, 540));
 
 await Task.Delay(1000);
 await new Application(whale, preview).Main((354, 28394), 500, 10000);

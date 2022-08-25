@@ -23,7 +23,7 @@ class Application
     /// <summary>
     /// 針読みに使う回数
     /// </summary>
-    static readonly int observations = 20;
+    static readonly int observations = 12;
 
     public Application(Whale whale, Preview preview)
     {
@@ -84,6 +84,8 @@ class Application
             } while (pivotSeeds.Count != 1);
             var pivotSeed = pivotSeeds[0];
 
+            // 待機して起動
+            // 針読みから初期seedを求める
             (uint Seed, int Advance) target;
             var continueFlag = false;
             do
@@ -91,7 +93,7 @@ class Application
                 // 誤操作で待機場所がズレないように、ゲームをロードして待機する
                 await whale.RunAsync(Sequences.load);
 
-                target = await pivotSeed.GetNextInitialSeed(targetID, 20, maxAdvance, TimeSpan.FromMilliseconds(800000));
+                target = await pivotSeed.GetNextInitialSeed(targetID, observations, maxAdvance, stopwatch.Elapsed + TimeSpan.FromMinutes(3));
                 waitTime = TimeSpan.FromMilliseconds(target.Seed - pivotSeed); // uint型変数同士では 0x0-0xFFFFFFFF=1 みたいな計算ができるので、万が一0をまたぐ際も大丈夫
                 Console.WriteLine();
                 Console.WriteLine("Target seed Starts at           Advance");
@@ -101,12 +103,15 @@ class Application
                 // ゲームのロードを待機
                 mainTimer.Submit(waitTime);
                 subTimer.Submit(waitTime - TimeSpan.FromSeconds(25));
-                using var nextTimer = new TimerStopwatch(loadGame, null);
-                while (!finished)
-                {
-                    await Task.Delay(1);
-                }
+                var nextTimer = new TimerStopwatch(loadGame, null);
+
+                await Task.Run(() => { while (!finished) ; });// 別スレッドでビジーウェイトのほうが、次回起動時のタイマー開始を正確にすることができる...？
+
                 nextTimer.Start();
+                subTimer.Reset();
+                subTimer.Start();
+                stopwatch.Restart();
+                startTime = DateTime.Now;
                 await whale.RunAsync(Sequences.skipOpening_1);
 
                 // 針読み結果
@@ -116,16 +121,24 @@ class Application
                 Console.WriteLine("----------------");
                 Console.WriteLine(string.Join(',', indicatorResults));
 
-                // 初期seed候補を絞る
-                var candidates = GetInitialSeedCandidates(target.Seed, tolerance);
-                var initialSeeds = await indicatorResults.GetInitialSeeds(candidates);
-                Console.WriteLine();
-                Console.WriteLine("Initial seed Gap");
-                Console.WriteLine("------------ ---");
-                initialSeeds.ForEach(initialSeed =>
+                List<uint> initialSeeds;
+                if (indicatorResults.Count() == 0)
                 {
-                    Console.WriteLine("{0,8:X}     {1}", initialSeed, (long)initialSeed - target.Seed);
-                });
+                    initialSeeds = new();
+                }
+                else
+                {
+                    // 初期seed候補を絞る
+                    var candidates = GetInitialSeedCandidates(target.Seed, tolerance);
+                    initialSeeds = await indicatorResults.GetInitialSeeds(candidates);
+                    Console.WriteLine();
+                    Console.WriteLine("Initial seed Gap");
+                    Console.WriteLine("------------ ---");
+                    initialSeeds.ForEach(initialSeed =>
+                    {
+                        Console.WriteLine("{0,8:X}     {1}", initialSeed, (long)initialSeed - target.Seed);
+                    });
+                }
 
                 // 針読み結果に目標seedが含まれる場合、以降の消費へ進む
                 if (initialSeeds.Contains(target.Seed))
@@ -138,15 +151,22 @@ class Application
                 {
                     // 初期seedの候補が1つに絞れていなければ、基準seedから求め直し
                     continueFlag = true;
+                    nextTimer.Dispose();
                     break;
                 }
                 else
                 {
                     // 1つに絞れていれば、それを基準seedとして次のseedを探す
                     pivotSeed = initialSeeds.First();
+
+                    // タイマーの引継ぎ
+                    mainTimer.Dispose();
                     mainTimer = nextTimer;
                 }
             } while (true);
+
+            mainTimer.Dispose();
+
             if (continueFlag)
             {
                 // 基準seedから求め直し
@@ -173,7 +193,7 @@ class Application
                     .Concat(Sequences.showTrainerCard).ToArray()
             );
 
-            using var currentFrame = preview.CurrentFrame;      
+            using var currentFrame = preview.CurrentFrame;
 #if DEBUG
             currentFrame.SaveImage(DateTime.Now.ToString("yyyyMMddHHmmssfff") + ".png");
 #endif
@@ -192,9 +212,10 @@ class Application
             {
                 Console.Error.WriteLine(exception);
             }
-            await whale.RunAsync(Sequences.reset);
-            
-            mainTimer.Dispose();
+            if (result != targetID.tid)
+            {
+                await whale.RunAsync(Sequences.reset);
+            }
 
         } while (result != targetID.tid);
     }
@@ -210,7 +231,7 @@ class Application
     async Task<List<(uint Seed, List<long> Gaps)>> GetPivotSeedGapsPair(Rect aroundID, int interval, int tolerance)
     {
         List<ushort> tids;
-    
+
         Console.WriteLine();
         Console.WriteLine("Elapsed    TID");
         Console.WriteLine("-------    ---");
@@ -300,6 +321,11 @@ class Application
                     new Operation(new KeySpecifier[] { KeySpecifier.A_Up }, TimeSpan.FromMilliseconds(1500))
             });
 
+            // 30秒間針が入力されなければキャンセルする
+            var cancellationTokenSource = new CancellationTokenSource();
+            var cancellationToken = cancellationTokenSource.Token;
+            var waitTimeout = Task.Delay(30000, cancellationToken).ContinueWith(_ => cancellationTokenSource.Cancel());
+
             Task<Mat>? task = null;
             await Task.WhenAll
             (
@@ -319,7 +345,7 @@ class Application
                 Task.Delay(TimeSpan.FromMilliseconds(5000))
                     .ContinueWith(_ =>
                     {
-                        task = preview.GetLastFrame(aroundIndicator);
+                        task = preview.GetLastFrame(aroundIndicator, cancellationToken);
                     }),
                 Task.Delay(TimeSpan.FromSeconds(500 / fps))
                     .ContinueWith(_ =>
@@ -335,12 +361,24 @@ class Application
             if (task == null)
             {
                 // ここに侵入したら異常なので空の画像を挿す
-                task = Task.Run(() => preview.CurrentFrame);
+                cancellationTokenSource.Cancel();
+                task = Task.Run(() => new Mat(), cancellationToken);
             }
 
-            using var indicator = await task;
-            var pos = indicator.GetPosition();
-            list.Add(pos);
+            try
+            {
+                using var indicator = await task;
+                cancellationTokenSource.Cancel();
+                var pos = indicator.GetPosition();
+                list.Add(pos);
+
+                indicator.SaveImage(string.Format("{0}-{1}.png", DateTime.Now.ToString("yyyyMMddHHmmssfff"), pos));
+            }
+            catch (OperationCanceledException)
+            {
+                Console.Error.WriteLine("GetIndicatorResults canceled.");
+                return new List<int>();
+            }
 
             await whale.RunAsync(Sequences.discardName);
         }
