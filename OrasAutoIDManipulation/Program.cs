@@ -1,5 +1,4 @@
-﻿using OpenCvSharp;
-using Hogei;
+﻿using Hogei;
 
 Console.WriteLine("OrasAutoIDManipulation");
 

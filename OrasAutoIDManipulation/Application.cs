@@ -39,19 +39,9 @@ class Application
             TimeSpan waitTime = TimeSpan.Zero;
             var stopwatch = new Stopwatch();
 
+            DateTime startTime;
             var finished = false;
-            var loadGame = new TimerCallback(async _ =>
-            {
-                // ゲームを起動する
-                Console.WriteLine();
-                Console.WriteLine("Target wait time Actual elapsed");
-                Console.WriteLine("---------------- --------------");
-                Console.WriteLine("{0,16} {1,14}", waitTime.TotalMilliseconds, stopwatch.ElapsedMilliseconds);
-
-                await whale.RunAsync(Sequences.load);
-                finished = true;
-            });
-            var mainTimer = new TimerStopwatch(loadGame, null);
+            var mainTimer = new TimerStopwatch(_ => {}, null);
             using var subTimer = new TimerStopwatch(async _ =>
             {
                 // 起動直前にホーム画面に戻る
@@ -59,18 +49,42 @@ class Application
                 Console.WriteLine("Back to home: {0}", DateTime.Now);
                 await whale.RunAsync(Sequences.reset);
             }, null);
+            var loadGame = new TimerCallback(async _ =>
+            {
+                // ゲームを起動する
+                Console.WriteLine();
+                Console.WriteLine("TargetWaitTime ActualElapsed");
+                Console.WriteLine("-------------- -------------");
+                Console.WriteLine("{0,14} {1,13}", waitTime.TotalMilliseconds, stopwatch.ElapsedMilliseconds);
 
-            stopwatch.Start();
-            mainTimer.Start();
-            subTimer.Start();
+                mainTimer.Reset();
+                subTimer.Reset();
+                stopwatch.Reset();
+                
+                mainTimer.Start();
+                subTimer.Start();
+                stopwatch.Start();
+                startTime = DateTime.Now; Console.WriteLine("startTime: {0}", startTime);
+
+                await whale.RunAsync(Sequences.load);
+                finished = true;
+            });
+            mainTimer = new TimerStopwatch(loadGame, null);
 
             // 基準seedを求める
-            DateTime startTime;
             List<uint> pivotSeeds;
             do
             {
+                mainTimer.Reset();
+                subTimer.Reset();
+                stopwatch.Reset();
+
+                mainTimer.Start();
+                subTimer.Start();
+                stopwatch.Start();
                 startTime = DateTime.Now;
-                var pivot = await GetPivotSeedGapsPair(aroundID, 180000, tolerance);
+                
+                var pivot = await GetPivotSeedGapsPair(aroundID, 5, 180000, tolerance);
                 Console.WriteLine();
                 Console.WriteLine("Seed     Gaps");
                 Console.WriteLine("----     ----");
@@ -96,29 +110,24 @@ class Application
                 target = await pivotSeed.GetNextInitialSeed(targetID, observations, maxAdvance, stopwatch.Elapsed + TimeSpan.FromMinutes(3));
                 waitTime = TimeSpan.FromMilliseconds(target.Seed - pivotSeed); // uint型変数同士では 0x0-0xFFFFFFFF=1 みたいな計算ができるので、万が一0をまたぐ際も大丈夫
                 Console.WriteLine();
-                Console.WriteLine("Target seed Starts at           Advance");
-                Console.WriteLine("----------- ------------------- -------");
-                Console.WriteLine("{0,8:X}    {1,19} {2}", target.Seed, startTime + waitTime, target.Advance);
+                Console.WriteLine("TargetSeed StartsAt            Advance");
+                Console.WriteLine("---------- --------            -------");
+                Console.WriteLine("{0,8:X}   {1,19} {2}", target.Seed, startTime + waitTime, target.Advance);
 
                 // ゲームのロードを待機
                 mainTimer.Submit(waitTime);
                 subTimer.Submit(waitTime - TimeSpan.FromSeconds(25));
-                var nextTimer = new TimerStopwatch(loadGame, null);
 
                 await Task.Run(() => { while (!finished) ; });// 別スレッドでビジーウェイトのほうが、次回起動時のタイマー開始を正確にすることができる...？
+                finished = false;
 
-                nextTimer.Start();
-                subTimer.Reset();
-                subTimer.Start();
-                stopwatch.Restart();
-                startTime = DateTime.Now;
                 await whale.RunAsync(Sequences.skipOpening_1);
 
                 // 針読み結果
                 var indicatorResults = await GetIndicatorResults(aroundIndicator, observations);
                 Console.WriteLine();
-                Console.WriteLine("Indicator result");
-                Console.WriteLine("----------------");
+                Console.WriteLine("IndicatorResult");
+                Console.WriteLine("---------------");
                 Console.WriteLine(string.Join(',', indicatorResults));
 
                 List<uint> initialSeeds;
@@ -132,11 +141,11 @@ class Application
                     var candidates = GetInitialSeedCandidates(target.Seed, tolerance);
                     initialSeeds = await indicatorResults.GetInitialSeeds(candidates);
                     Console.WriteLine();
-                    Console.WriteLine("Initial seed Gap");
-                    Console.WriteLine("------------ ---");
+                    Console.WriteLine("InitialSeed Gap");
+                    Console.WriteLine("----------- ---");
                     initialSeeds.ForEach(initialSeed =>
                     {
-                        Console.WriteLine("{0,8:X}     {1}", initialSeed, (long)initialSeed - target.Seed);
+                        Console.WriteLine("{0,8:X}    {1}", initialSeed, (long)initialSeed - target.Seed);
                     });
                 }
 
@@ -151,17 +160,12 @@ class Application
                 {
                     // 初期seedの候補が1つに絞れていなければ、基準seedから求め直し
                     continueFlag = true;
-                    nextTimer.Dispose();
                     break;
                 }
                 else
                 {
                     // 1つに絞れていれば、それを基準seedとして次のseedを探す
                     pivotSeed = initialSeeds.First();
-
-                    // タイマーの引継ぎ
-                    mainTimer.Dispose();
-                    mainTimer = nextTimer;
                 }
             } while (true);
 
@@ -221,14 +225,14 @@ class Application
     }
 
     /// <summary>
-    /// interval±tolerance(ms)間隔で4回起動して、基準seedと誤差を取得する
+    /// interval±tolerance(ms)間隔でn回起動して、基準seedと誤差を取得する
     /// </summary>
     /// <param name="Seed"></param>
     /// <param name="aroundID"></param>
     /// <param name="interval"></param>
     /// <param name="tolerance"></param>
     /// <returns></returns>
-    async Task<List<(uint Seed, List<long> Gaps)>> GetPivotSeedGapsPair(Rect aroundID, int interval, int tolerance)
+    async Task<List<(uint Seed, List<long> Gaps)>> GetPivotSeedGapsPair(Rect aroundID, int n, int interval, int tolerance)
     {
         List<ushort> tids;
 
@@ -247,7 +251,7 @@ class Application
             var count = 0;
             var getID = new TimerCallback(async _ =>
             {
-                if (count > 3)
+                if (count > (n - 1))
                 {
                     return;
                 }
@@ -278,14 +282,14 @@ class Application
             using var timer = new Timer(getID, null, TimeSpan.Zero, TimeSpan.FromMilliseconds(interval));
             try
             {
-                await Task.Delay(TimeSpan.FromMilliseconds(interval * 4), cancellationToken);
+                await Task.Delay(TimeSpan.FromMilliseconds(interval * n), cancellationToken);
             }
             catch (OperationCanceledException)
             {
                 Console.Error.WriteLine("=== Failed to get ID. ===");
                 await whale.RunAsync(Sequences.reset);
             }
-        } while (tids.Count() != 4);
+        } while (tids.Count() != n);
 
         return tids.GetPivotSeedsFromTIDs(interval, tolerance);
     }
