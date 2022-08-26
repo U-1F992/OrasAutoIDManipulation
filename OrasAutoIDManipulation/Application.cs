@@ -107,7 +107,7 @@ class Application
                 // 誤操作で待機場所がズレないように、ゲームをロードして待機する
                 await whale.RunAsync(Sequences.load);
 
-                target = await pivotSeed.GetNextInitialSeed(targetID, observations, maxAdvance, stopwatch.Elapsed + TimeSpan.FromMinutes(3));
+                target = await pivotSeed.GetNextInitialSeed(targetID, observations + 12, maxAdvance, stopwatch.Elapsed + TimeSpan.FromMinutes(3));
                 waitTime = TimeSpan.FromMilliseconds(target.Seed - pivotSeed); // uint型変数同士では 0x0-0xFFFFFFFF=1 みたいな計算ができるので、万が一0をまたぐ際も大丈夫
                 Console.WriteLine();
                 Console.WriteLine("TargetSeed StartsAt            Advance");
@@ -118,7 +118,7 @@ class Application
                 mainTimer.Submit(waitTime);
                 subTimer.Submit(waitTime - TimeSpan.FromSeconds(25));
 
-                await Task.Run(() => { while (!finished) ; });// 別スレッドでビジーウェイトのほうが、次回起動時のタイマー開始を正確にすることができる...？
+                await Task.Run(() => { while (!finished) ; });
                 finished = false;
 
                 await whale.RunAsync(Sequences.skipOpening_1);
