@@ -99,9 +99,10 @@ public static class PokemonSixGenRNGExtensions
 
                     uint seed = (uint)((pivotSeed + incremental) & 0xFFFFFFFF);
                     var tinyMT = new TinyMT(seed);
-                    tinyMT.Advance(13); // 強制12+ID確定に1消費？
+                    tinyMT.Advance(13);
+                    tinyMT.Advance(minAdvance);
 
-                    for (var advance = minAdvance + 12; advance < maxAdvance + 1; advance++)
+                    for (var advance = 0; advance < maxAdvance - minAdvance + 1; advance++)
                     {
                         if (tinyMT.GetID() != targetID)
                         {
@@ -110,7 +111,7 @@ public static class PokemonSixGenRNGExtensions
                         lock (dictionary)
                         {
                             // 捨てる回数は12を差し引く
-                            dictionary.Add(seed, advance - 12);
+                            dictionary.Add(seed, advance + minAdvance);
                         }
                         return;
                     }

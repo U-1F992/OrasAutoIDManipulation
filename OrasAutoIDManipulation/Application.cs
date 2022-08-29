@@ -40,6 +40,7 @@ class Application
             var stopwatch = new Stopwatch();
 
             DateTime startTime;
+            long actualElapsed = 0;
             var finished = false;
             var mainTimer = new TimerStopwatch(_ => {}, null);
             using var subTimer = new TimerStopwatch(async _ =>
@@ -52,21 +53,22 @@ class Application
             var loadGame = new TimerCallback(async _ =>
             {
                 // ゲームを起動する
-                Console.WriteLine();
-                Console.WriteLine("TargetWaitTime ActualElapsed");
-                Console.WriteLine("-------------- -------------");
-                Console.WriteLine("{0,14} {1,13}", waitTime.TotalMilliseconds, stopwatch.ElapsedMilliseconds);
-
-                mainTimer.Reset();
-                subTimer.Reset();
-                stopwatch.Reset();
-                
-                mainTimer.Start();
-                subTimer.Start();
-                stopwatch.Start();
-                startTime = DateTime.Now; Console.WriteLine("startTime: {0}", startTime);
-
-                await whale.RunAsync(Sequences.load);
+                await Task.WhenAll
+                (
+                    whale.RunAsync(Sequences.load),
+                    Task.Run(() =>
+                    {
+                        actualElapsed = stopwatch.ElapsedMilliseconds;
+                        mainTimer.Reset();
+                        subTimer.Reset();
+                        stopwatch.Reset();
+                        
+                        mainTimer.Start();
+                        subTimer.Start();
+                        stopwatch.Start();
+                    })
+                );
+                startTime = DateTime.Now;
                 finished = true;
             });
             mainTimer = new TimerStopwatch(loadGame, null);
@@ -107,7 +109,7 @@ class Application
                 // 誤操作で待機場所がズレないように、ゲームをロードして待機する
                 await whale.RunAsync(Sequences.load);
 
-                target = await pivotSeed.GetNextInitialSeed(targetID, observations + 12, maxAdvance, stopwatch.Elapsed + TimeSpan.FromMinutes(3));
+                target = await pivotSeed.GetNextInitialSeed(targetID, observations, maxAdvance, stopwatch.Elapsed + TimeSpan.FromMinutes(2));
                 waitTime = TimeSpan.FromMilliseconds(target.Seed - pivotSeed); // uint型変数同士では 0x0-0xFFFFFFFF=1 みたいな計算ができるので、万が一0をまたぐ際も大丈夫
                 Console.WriteLine();
                 Console.WriteLine("TargetSeed StartsAt            Advance");
@@ -119,7 +121,12 @@ class Application
                 subTimer.Submit(waitTime - TimeSpan.FromSeconds(25));
 
                 await Task.Run(() => { while (!finished) ; });
+                
                 finished = false;
+                Console.WriteLine();
+                Console.WriteLine("TargetWaitTime ActualElapsed");
+                Console.WriteLine("-------------- -------------");
+                Console.WriteLine("{0,14} {1,13}", waitTime.TotalMilliseconds, actualElapsed);
 
                 await whale.RunAsync(Sequences.skipOpening_1);
 
@@ -375,8 +382,6 @@ class Application
                 cancellationTokenSource.Cancel();
                 var pos = indicator.GetPosition();
                 list.Add(pos);
-
-                indicator.SaveImage(string.Format("{0}-{1}.png", DateTime.Now.ToString("yyyyMMddHHmmssfff"), pos));
             }
             catch (OperationCanceledException)
             {
