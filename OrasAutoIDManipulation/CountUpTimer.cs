@@ -1,9 +1,6 @@
 public class CountUpTimer
 {
-    public event EventHandler Tick = (sender, eventArgs) => { };
-    
     Object lockObject = new Object();
-    TimeSpan elapsed = TimeSpan.Zero;
     TimeSpan submitted = TimeSpan.MaxValue;
 
     public CountUpTimer()
@@ -18,9 +15,10 @@ public class CountUpTimer
     public async Task Start() { await Start(CancellationToken.None); }
     public async Task Start(CancellationToken cancellationToken)
     {
+        var elapsed = TimeSpan.Zero;
         lock (lockObject)
         {
-            elapsed = TimeSpan.Zero;
+            submitted = TimeSpan.MaxValue;  
         }
         var task = Task.Run(() =>
         {
@@ -29,6 +27,7 @@ public class CountUpTimer
 
             while (elapsed < submitted)
             {
+                cancellationToken.ThrowIfCancellationRequested();
                 if (next > DateTime.Now.Ticks)
                 {
                     continue;
@@ -39,8 +38,6 @@ public class CountUpTimer
                 }
                 next += interval;
             }
-            
-            Tick(this, EventArgs.Empty);
         
         }, cancellationToken);
         try
@@ -55,7 +52,6 @@ public class CountUpTimer
         {
             lock (lockObject)
             {
-                elapsed = TimeSpan.Zero;
                 submitted = TimeSpan.MaxValue;   
             }
         }

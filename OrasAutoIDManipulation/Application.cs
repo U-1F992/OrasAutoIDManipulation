@@ -41,50 +41,28 @@ class Application
 
             DateTime startTime;
             long actualElapsed = 0;
-            var finished = false;
-            var mainTimer = new TimerStopwatch(_ => {}, null);
-            using var subTimer = new TimerStopwatch(async _ =>
-            {
-                // 起動直前にホーム画面に戻る
-                Console.WriteLine();
-                Console.WriteLine("Back to home: {0}", DateTime.Now);
-                await whale.RunAsync(Sequences.reset);
-            }, null);
-            var loadGame = new TimerCallback(async _ =>
-            {
-                // ゲームを起動する
-                await Task.WhenAll
-                (
-                    whale.RunAsync(Sequences.load),
-                    Task.Run(() =>
-                    {
-                        actualElapsed = stopwatch.ElapsedMilliseconds;
-                        mainTimer.Reset();
-                        subTimer.Reset();
-                        stopwatch.Reset();
-                        
-                        mainTimer.Start();
-                        subTimer.Start();
-                        stopwatch.Start();
-                    })
-                );
-                startTime = DateTime.Now;
-                finished = true;
-            });
-            mainTimer = new TimerStopwatch(loadGame, null);
+
+            var mainTimer = new CountUpTimer();
+            var subTimer = new CountUpTimer();
+            var cancellationTokenSource = new CancellationTokenSource();
+            var mainTask = Task.CompletedTask;
+            var subTask = Task.CompletedTask;
 
             // 基準seedを求める
             List<uint> pivotSeeds;
             do
             {
-                mainTimer.Reset();
-                subTimer.Reset();
-                stopwatch.Reset();
-
-                mainTimer.Start();
-                subTimer.Start();
-                stopwatch.Start();
                 startTime = DateTime.Now;
+
+                cancellationTokenSource.Dispose();
+                mainTask.Dispose();
+                subTask.Dispose();
+
+                cancellationTokenSource = new();
+                mainTask = mainTimer.Start(cancellationTokenSource.Token);
+                subTask = subTimer.Start(cancellationTokenSource.Token);
+                stopwatch.Reset();
+                stopwatch.Start();
                 
                 var pivot = await GetPivotSeedGapsPair(aroundID, 5, 180000, tolerance);
                 Console.WriteLine();
@@ -96,6 +74,13 @@ class Application
                 });
 
                 pivotSeeds = pivot.Select(pair => pair.Seed).ToList();
+
+                if (pivotSeeds.Count != 1)
+                {
+                    cancellationTokenSource.Cancel();
+                    try { Console.WriteLine("Cancel mainTask"); await mainTask; } catch (OperationCanceledException) { }
+                    try { Console.WriteLine("Cancel subTask"); await subTask; } catch (OperationCanceledException) { }
+                }
 
             } while (pivotSeeds.Count != 1);
             var pivotSeed = pivotSeeds[0];
@@ -119,10 +104,34 @@ class Application
                 // ゲームのロードを待機
                 mainTimer.Submit(waitTime);
                 subTimer.Submit(waitTime - TimeSpan.FromSeconds(25));
-
-                await Task.Run(() => { while (!finished) ; });
                 
-                finished = false;
+                // 起動直前にホーム画面に戻る
+                await subTask;
+                Console.WriteLine();
+                Console.WriteLine("Back to home: {0}", DateTime.Now);
+                await whale.RunAsync(Sequences.reset);
+
+                // ゲームを起動する
+                await mainTask;
+                cancellationTokenSource.Dispose();
+                mainTask.Dispose();
+                subTask.Dispose();
+                await Task.WhenAll
+                (
+                    whale.RunAsync(Sequences.load),
+                    Task.Run(() =>
+                    {
+                        actualElapsed = stopwatch.ElapsedMilliseconds;
+                        startTime = DateTime.Now;
+                        
+                        cancellationTokenSource = new();
+                        mainTask = mainTimer.Start(cancellationTokenSource.Token);
+                        subTask = subTimer.Start(cancellationTokenSource.Token);
+                        stopwatch.Reset();
+                        stopwatch.Start();
+                    })
+                );
+
                 Console.WriteLine();
                 Console.WriteLine("TargetWaitTime ActualElapsed");
                 Console.WriteLine("-------------- -------------");
@@ -175,8 +184,11 @@ class Application
                     pivotSeed = initialSeeds.First();
                 }
             } while (true);
-
-            mainTimer.Dispose();
+            
+            // タイマーを破棄
+            cancellationTokenSource.Cancel();
+            try { Console.WriteLine("Cancel mainTask"); await mainTask; } catch (OperationCanceledException) { }
+            try { Console.WriteLine("Cancel subTask"); await subTask; } catch (OperationCanceledException) { }
 
             if (continueFlag)
             {
@@ -190,7 +202,21 @@ class Application
                 (
                     new Operation[] { }
                         .Concat(Sequences.selectMale)
-                        .Concat(Sequences.decideName_A)
+                        .Concat(Sequences.decideName_A).ToArray()
+                );
+
+                using var tmp = preview.CurrentFrame;
+                using var trim = tmp.Clone(new Rect(1231, 266, 70, 35));
+                using var yes = new Mat("1231-266-70-35.png");
+                if (!tmp.Contains(yes))
+                {
+                    Console.WriteLine("PANIC : Action required.");
+                    Console.ReadLine();
+                }
+
+                await whale.RunAsync
+                (
+                    new Operation[] { }
                         .Concat(Sequences.discardName).ToArray()
                 );
             }
@@ -211,13 +237,6 @@ class Application
             try
             {
                 result = currentFrame.GetCurrentID(aroundID, tessConfig);
-                Console.WriteLine();
-                Console.WriteLine("Seed     Gap");
-                Console.WriteLine("----     ---");
-                result.GetGap(target.Seed, target.Advance, tolerance).ForEach(pair =>
-                {
-                    Console.WriteLine("{0,8:X} {1}", pair.Seed, pair.Gap);
-                });
             }
             catch (Exception exception)
             {

@@ -18,7 +18,7 @@ public static class Sequences
     {
         // 起動
         new Operation(Key_A_Down, standardDuration),
-        new Operation(Key_A_Up, TimeSpan.FromMilliseconds(9000)),
+        new Operation(Key_A_Up, TimeSpan.FromMilliseconds(10000)),
     };
     public static Operation[] skipOpening_1 = new Operation[]
     {
@@ -80,7 +80,7 @@ public static class Sequences
         new Operation(Key_A_Up, TimeSpan.FromMilliseconds(1000)),
         // 「おわり」へ移動して名前決定
         new Operation(new KeySpecifier[] { KeySpecifier.Start_Down }, TimeSpan.FromMilliseconds(1000)),
-        new Operation(new KeySpecifier[] { KeySpecifier.Start_Up }, TimeSpan.FromMilliseconds(1000)),
+        new Operation(new KeySpecifier[] { KeySpecifier.Start_Up }, TimeSpan.FromMilliseconds(500)),
         new Operation(Key_A_Down, standardDuration),
         new Operation(Key_A_Up, TimeSpan.FromMilliseconds(7000)),
     };
@@ -143,7 +143,7 @@ public static class Sequences
 
         // 「おわり」へ移動して名前決定
         new Operation(new KeySpecifier[] { KeySpecifier.Start_Down }, TimeSpan.FromMilliseconds(1000)),
-        new Operation(new KeySpecifier[] { KeySpecifier.Start_Up }, TimeSpan.FromMilliseconds(1000)),
+        new Operation(new KeySpecifier[] { KeySpecifier.Start_Up }, TimeSpan.FromMilliseconds(500)),
         new Operation(Key_A_Down, standardDuration),
         new Operation(Key_A_Up, TimeSpan.FromMilliseconds(7000)),
     };

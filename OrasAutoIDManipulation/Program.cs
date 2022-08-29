@@ -14,11 +14,11 @@ serialPort.Open();
 var whale = new Whale(serialPort);
 
 using var videoCapture = VideoCaptureFactory.FromJson(resolve("videocapture.config.json"));
-var preview = new Preview(videoCapture, new Size(960, 540));
+var preview = new Preview(videoCapture);//, new Size(960, 540));
 using var viewer = new Viewer(preview, @"C:\Users\mukai\AppData\Local\n3DSview_ver701_r5\x64\n3DS_view(x64).exe", TimeSpan.FromSeconds(20));
 
 Console.WriteLine("OrasAutoIDManipulation");
 await Task.Delay(1000);
-//await new Application(whale, preview).Main((354, 28394), 500, 10000);
+await new Application(whale, preview).Main((354, 28394), 500, 10000);
 
 //await Task.Delay(Timeout.InfiniteTimeSpan);
