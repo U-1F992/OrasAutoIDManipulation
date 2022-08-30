@@ -20,5 +20,3 @@ using var viewer = new Viewer(preview, @"C:\Users\mukai\AppData\Local\n3DSview_v
 Console.WriteLine("OrasAutoIDManipulation");
 await Task.Delay(1000);
 await new Application(whale, preview).Main((354, 28394), 500, 10000);
-
-//await Task.Delay(Timeout.InfiniteTimeSpan);

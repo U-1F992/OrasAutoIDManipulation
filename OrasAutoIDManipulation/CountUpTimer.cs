@@ -1,5 +1,7 @@
 public class CountUpTimer
 {
+    public event EventHandler Elapsed = (sender, eventArgs) => { };
+    
     Object lockObject = new Object();
     TimeSpan submitted = TimeSpan.MaxValue;
 
@@ -34,10 +36,12 @@ public class CountUpTimer
                 }
                 lock (lockObject)
                 {
-                    elapsed = TimeSpan.FromMilliseconds(elapsed.TotalMilliseconds + 1);
+                    elapsed += TimeSpan.FromMilliseconds(1);
                 }
                 next += interval;
             }
+            
+            Elapsed(this, EventArgs.Empty);
         
         }, cancellationToken);
         try

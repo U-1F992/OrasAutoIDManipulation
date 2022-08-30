@@ -9,6 +9,7 @@
 
   <ItemGroup>
     <PackageReference Include="Hogei" Version="2.0.0" />
+    <PackageReference Include="LINENotify" Version="1.0.0" />
     <PackageReference Condition="$([MSBuild]::IsOSPlatform('Windows'))" Include="OpenCvSharp4.runtime.win" Version="4.6.0.20220608" />
     <PackageReference Condition="$([MSBuild]::IsOSPlatform('Linux'))" Include="OpenCvSharp4.runtime.ubuntu.18.04-x64" Version="4.6.0.20220608" />
   </ItemGroup>
@@ -20,6 +21,7 @@
   <ItemGroup>
     <None Update="serialport.config.json" CopyToOutputDirectory="Always" />
     <None Update="videocapture.config.json" CopyToOutputDirectory="Always" />
+    <None Update="1231-266-70-35.png" CopyToOutputDirectory="Always" />
   </ItemGroup>
 
 </Project>

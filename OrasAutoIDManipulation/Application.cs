@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using OpenCvSharp;
 using Hogei;
+using LINENotify;
 
 class Application
 {
@@ -24,6 +25,7 @@ class Application
     /// 針読みに使う回数
     /// </summary>
     static readonly int observations = 12;
+    static string token = Environment.GetEnvironmentVariable("LINENOTIFY_TOKEN")!;
 
     public Application(Whale whale, Preview preview)
     {
@@ -48,6 +50,27 @@ class Application
             var mainTask = Task.CompletedTask;
             var subTask = Task.CompletedTask;
 
+            mainTimer.Elapsed += (sender, eventArgs) =>
+            {
+                // ゲームを起動する
+                actualElapsed = stopwatch.ElapsedMilliseconds;
+                startTime = DateTime.Now;
+                
+                cancellationTokenSource.Dispose();
+                cancellationTokenSource = new();
+                mainTask = mainTimer.Start(cancellationTokenSource.Token);
+                subTask = subTimer.Start(cancellationTokenSource.Token);
+                stopwatch.Reset();
+                stopwatch.Start();
+
+                whale.Run(Sequences.load);
+            };
+            subTimer.Elapsed += (sender, eventArgs) =>
+            {
+                // 起動前にホームに戻る
+                whale.Run(Sequences.reset);
+            };
+
             // 基準seedを求める
             List<uint> pivotSeeds;
             do
@@ -55,9 +78,6 @@ class Application
                 startTime = DateTime.Now;
 
                 cancellationTokenSource.Dispose();
-                mainTask.Dispose();
-                subTask.Dispose();
-
                 cancellationTokenSource = new();
                 mainTask = mainTimer.Start(cancellationTokenSource.Token);
                 subTask = subTimer.Start(cancellationTokenSource.Token);
@@ -78,8 +98,8 @@ class Application
                 if (pivotSeeds.Count != 1)
                 {
                     cancellationTokenSource.Cancel();
-                    try { Console.WriteLine("Cancel mainTask"); await mainTask; } catch (OperationCanceledException) { }
-                    try { Console.WriteLine("Cancel subTask"); await subTask; } catch (OperationCanceledException) { }
+                    try { await mainTask; } catch (OperationCanceledException) { }
+                    try { await subTask; } catch (OperationCanceledException) { }
                 }
 
             } while (pivotSeeds.Count != 1);
@@ -105,33 +125,8 @@ class Application
                 mainTimer.Submit(waitTime);
                 subTimer.Submit(waitTime - TimeSpan.FromSeconds(25));
                 
-                // 起動直前にホーム画面に戻る
                 await subTask;
-                Console.WriteLine();
-                Console.WriteLine("Back to home: {0}", DateTime.Now);
-                await whale.RunAsync(Sequences.reset);
-
-                // ゲームを起動する
                 await mainTask;
-                cancellationTokenSource.Dispose();
-                mainTask.Dispose();
-                subTask.Dispose();
-                await Task.WhenAll
-                (
-                    whale.RunAsync(Sequences.load),
-                    Task.Run(() =>
-                    {
-                        actualElapsed = stopwatch.ElapsedMilliseconds;
-                        startTime = DateTime.Now;
-                        
-                        cancellationTokenSource = new();
-                        mainTask = mainTimer.Start(cancellationTokenSource.Token);
-                        subTask = subTimer.Start(cancellationTokenSource.Token);
-                        stopwatch.Reset();
-                        stopwatch.Start();
-                    })
-                );
-
                 Console.WriteLine();
                 Console.WriteLine("TargetWaitTime ActualElapsed");
                 Console.WriteLine("-------------- -------------");
@@ -187,8 +182,8 @@ class Application
             
             // タイマーを破棄
             cancellationTokenSource.Cancel();
-            try { Console.WriteLine("Cancel mainTask"); await mainTask; } catch (OperationCanceledException) { }
-            try { Console.WriteLine("Cancel subTask"); await subTask; } catch (OperationCanceledException) { }
+            try { await mainTask; } catch (OperationCanceledException) { }
+            try { await subTask; } catch (OperationCanceledException) { }
 
             if (continueFlag)
             {
@@ -196,6 +191,9 @@ class Application
                 continue;
             }
 
+            await Notifier.SendAsync(token, string.Format("目標IDが出現する初期seedを引き当てました。seed:{0:X},advance:{1}", target.Seed, target.Advance));
+
+            using var yes = new Mat(Path.Join(AppContext.BaseDirectory, "1231-266-70-35.png")); // fixme
             for (var i = 0; i < target.Advance - observations; i++)
             {
                 await whale.RunAsync
@@ -207,10 +205,11 @@ class Application
 
                 using var tmp = preview.CurrentFrame;
                 using var trim = tmp.Clone(new Rect(1231, 266, 70, 35));
-                using var yes = new Mat("1231-266-70-35.png");
                 if (!tmp.Contains(yes))
                 {
-                    Console.WriteLine("PANIC : Action required.");
+                    using var stream = tmp.ToStream(out var fileName);
+                    await Notifier.SendAsync(token, "問題が発生しました。画面を確認し、「あくん　だね？」「はい」「いいえ」まで手動で進めてください。", stream);
+                    Console.WriteLine("PANIC : Action required. Press Enter to continue...");
                     Console.ReadLine();
                 }
 
