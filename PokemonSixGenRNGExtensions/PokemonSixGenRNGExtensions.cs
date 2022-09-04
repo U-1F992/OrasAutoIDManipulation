@@ -34,10 +34,13 @@ public static class PokemonSixGenRNGExtensions
     /// <param name="interval"></param>
     /// <param name="tolerance"></param>
     /// <returns></returns>
-    public static List<(uint Seed, List<long> Gaps)> GetPivotSeedsFromTIDs(this IList<ushort> tids, int interval, int tolerance)
+    public static List<(uint Seed, List<long> Gaps)> GetPivotSeedsFromTIDs(this IList<ushort> tids, TimeSpan interval, TimeSpan tolerance)
     {
         var ret = new List<(uint Seed, List<long> Gaps)>();
         var baseDirectory = Path.Combine(AppContext.BaseDirectory, "database");
+
+        long intervalMs = (long)interval.TotalMilliseconds;
+        long toleranceMs = (long)tolerance.TotalMilliseconds;
 
         // 各TIDが出るseedの一覧
         var databases = new List<uint[]>();
@@ -53,8 +56,8 @@ public static class PokemonSixGenRNGExtensions
             var gaps = new List<long>();
             for (var i = 1; i < tids.Count; i++)
             {
-                var center = pivotSeed + interval * i;
-                var seeds = databases[i].Where(seed => center - tolerance <= seed && seed <= center + tolerance);
+                var center = pivotSeed + intervalMs * i;
+                var seeds = databases[i].Where(seed => center - toleranceMs <= seed && seed <= center + toleranceMs);
                 if (seeds.Count() == 0)
                 {
                     return;

@@ -10,15 +10,7 @@ public static class PreviewExtensions
     /// <param name="preview"></param>
     /// <param name="rect"></param>
     /// <returns></returns>
-    public static async Task<Mat> GetLastFrame(this Preview preview, Rect rect) { return await preview.GetLastFrame(rect, CancellationToken.None); }
-    /// <summary>
-    /// 進捗表示（虹色のくるくる）が消える最後のフレームを取得する<br/>
-    /// 名前入力画面で開始する
-    /// </summary>
-    /// <param name="preview"></param>
-    /// <param name="rect"></param>
-    /// <returns></returns>
-    public static async Task<Mat> GetLastFrame(this Preview preview, Rect rect, CancellationToken cancellationToken)
+    public static async Task<Mat> GetLastFrame(this Preview preview, Rect rect, CancellationToken cancellationToken = default)
     {
         if (rect.Width != rect.Height)
         {
@@ -46,14 +38,22 @@ public static class PreviewExtensions
         var center = new Rect(rect.X + side, rect.Y + side, side, side);
         using var source = new Mat(side, side, type, color);
 
-        var cancellationTokenSource1 = new CancellationTokenSource();
-        var cancellationToken1 = cancellationTokenSource1.Token;
-        var task = Task.Run(() =>
+        using var innerCts = new CancellationTokenSource();
+        var innerCt = innerCts.Token;
+        using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(innerCt, cancellationToken);
+        var linkedCt = linkedCts.Token;
+
+        bool show = false;
+#if DEBUG
+        show = true;
+#endif
+        
+        var task = show ? Task.Run(() =>
         {
             using var window = new Window();
             while (true)
             {
-                cancellationToken1.ThrowIfCancellationRequested();
+                linkedCt.ThrowIfCancellationRequested();
 
                 using var currentFrame = preview.CurrentFrame;
                 using var trimmed = currentFrame.Clone(rect);
@@ -62,7 +62,7 @@ public static class PreviewExtensions
                 window.ShowImage(toShow);
                 Cv2.WaitKey(1);
             }
-        }, cancellationToken1);
+        }, linkedCt) : Task.CompletedTask;
 
         // 表示されるまで
         using var appears = await Task.Run(() =>
@@ -107,9 +107,8 @@ public static class PreviewExtensions
         }, cancellationToken);
 
         // 小窓を消す
-        cancellationTokenSource1.Cancel();
-        try { await task; }
-        catch (OperationCanceledException) { }
+        innerCts.Cancel();
+        try { await task; } catch (OperationCanceledException) { }
 #if DEBUG
         ret.SaveImage(DateTime.Now.ToString("yyyyMMddHHmmssfff") + ".png");
 #endif

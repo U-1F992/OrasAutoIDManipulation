@@ -1,41 +1,58 @@
 using System.Diagnostics;
 using OpenCvSharp;
 using Hogei;
-using LINENotify;
 
 class Application
 {
-    Whale whale;
-    Preview preview;
-    TessConfig tessConfig = new TessConfig("C:\\Program Files\\Tesseract-OCR\\tessdata\\", "eng", "0123456789", 3, 7);
+    readonly Whale whale;
+    readonly Preview preview;
+    readonly LINENotify notifier;
 
     /// <summary>
-    /// トレーナーカード画面のIDを囲うRect
+    /// 目標IDペア
     /// </summary>
-    static readonly Rect aroundID = new Rect(1112, 40, 112, 35);
+    readonly (ushort tid, ushort sid) targetID;
+    /// <summary>
+    /// 許容する操作の誤差
+    /// </summary>
+    readonly TimeSpan tolerance = TimeSpan.FromMilliseconds(500);
+    /// <summary>
+    /// 許容する最大消費数
+    /// </summary>
+    readonly int maxAdvance;
+    /// <summary>
+    /// IDを見る回数
+    /// </summary>
+    readonly int countObserveID = 5;
+    /// <summary>
+    /// ID観測間にかかる時間
+    /// </summary>
+    readonly TimeSpan interval = TimeSpan.FromSeconds(180);
+    /// <summary>
+    /// 針を読む回数
+    /// </summary>
+    readonly int countObserveIndicator = 12;
+
     /// <summary>
     /// 虹色の進捗表示をちょうど囲うRect
     /// </summary>
-    static readonly Rect aroundIndicator = new Rect(1280, 489, 23, 23);
+    readonly Rect aroundIndicator = new Rect(1280, 489, 23, 23);
     /// <summary>
     /// 3DSのFPS（出典不明）
     /// </summary>
-    static readonly double fps = 59.8261;
-    /// <summary>
-    /// 針読みに使う回数
-    /// </summary>
-    static readonly int observations = 12;
-    static string token = Environment.GetEnvironmentVariable("LINENOTIFY_TOKEN")!;
+    readonly double fps = 59.8261;
 
-    public Application(Whale whale, Preview preview)
+    public Application(Whale whale, Preview preview, LINENotify notifier)
     {
         this.whale = whale;
         this.preview = preview;
+        this.notifier = notifier;
     }
 
-    public async Task Main((ushort tid, ushort sid) targetID, int tolerance, int maxAdvance)
+    public async Task Run((ushort tid, ushort sid) targetID)
     {
-        var result = (ushort)(targetID.tid + 1);
+        await notifier.SendAsync("ORAS ID調整を開始しました。");
+
         do
         {
             TimeSpan waitTime = TimeSpan.Zero;
@@ -55,7 +72,7 @@ class Application
                 // ゲームを起動する
                 actualElapsed = stopwatch.ElapsedMilliseconds;
                 startTime = DateTime.Now;
-                
+
                 cancellationTokenSource.Dispose();
                 cancellationTokenSource = new();
                 mainTask = mainTimer.Start(cancellationTokenSource.Token);
@@ -83,8 +100,8 @@ class Application
                 subTask = subTimer.Start(cancellationTokenSource.Token);
                 stopwatch.Reset();
                 stopwatch.Start();
-                
-                var pivot = await GetPivotSeedGapsPair(aroundID, 5, 180000, tolerance);
+
+                var pivot = await GetPivotSeedGapsPair();
                 Console.WriteLine();
                 Console.WriteLine("Seed     Gaps");
                 Console.WriteLine("----     ----");
@@ -114,7 +131,7 @@ class Application
                 // 誤操作で待機場所がズレないように、ゲームをロードして待機する
                 await whale.RunAsync(Sequences.load);
 
-                target = await pivotSeed.GetNextInitialSeed(targetID, observations, maxAdvance, stopwatch.Elapsed + TimeSpan.FromMinutes(2));
+                target = await pivotSeed.GetNextInitialSeed(targetID, countObserveIndicator, maxAdvance, stopwatch.Elapsed + TimeSpan.FromMinutes(2));
                 waitTime = TimeSpan.FromMilliseconds(target.Seed - pivotSeed); // uint型変数同士では 0x0-0xFFFFFFFF=1 みたいな計算ができるので、万が一0をまたぐ際も大丈夫
                 Console.WriteLine();
                 Console.WriteLine("TargetSeed StartsAt            Advance");
@@ -124,7 +141,7 @@ class Application
                 // ゲームのロードを待機
                 mainTimer.Submit(waitTime);
                 subTimer.Submit(waitTime - TimeSpan.FromSeconds(25));
-                
+
                 await subTask;
                 await mainTask;
                 Console.WriteLine();
@@ -135,7 +152,7 @@ class Application
                 await whale.RunAsync(Sequences.skipOpening_1);
 
                 // 針読み結果
-                var indicatorResults = await GetIndicatorResults(aroundIndicator, observations);
+                var indicatorResults = await GetIndicatorResults();
                 Console.WriteLine();
                 Console.WriteLine("IndicatorResult");
                 Console.WriteLine("---------------");
@@ -149,7 +166,7 @@ class Application
                 else
                 {
                     // 初期seed候補を絞る
-                    var candidates = GetInitialSeedCandidates(target.Seed, tolerance);
+                    var candidates = GetInitialSeedCandidates(target.Seed);
                     initialSeeds = await indicatorResults.GetInitialSeeds(candidates);
                     Console.WriteLine();
                     Console.WriteLine("InitialSeed Gap");
@@ -179,7 +196,7 @@ class Application
                     pivotSeed = initialSeeds.First();
                 }
             } while (true);
-            
+
             // タイマーを破棄
             cancellationTokenSource.Cancel();
             try { await mainTask; } catch (OperationCanceledException) { }
@@ -191,62 +208,11 @@ class Application
                 continue;
             }
 
-            await Notifier.SendAsync(token, string.Format("目標IDが出現する初期seedを引き当てました。seed:{0:X},advance:{1}", target.Seed, target.Advance));
+            await notifier.SendAsync(string.Format("目標IDが出現する初期seedを引き当てました。seed:{0:X},advance:{1}", target.Seed, target.Advance));
+            await AdvanceLeftover(target);
+            break;
 
-            using var yes = new Mat(Path.Join(AppContext.BaseDirectory, "1231-266-70-35.png")); // fixme
-            for (var i = 0; i < target.Advance - observations; i++)
-            {
-                await whale.RunAsync
-                (
-                    new Operation[] { }
-                        .Concat(Sequences.selectMale)
-                        .Concat(Sequences.decideName_A).ToArray()
-                );
-
-                using var tmp = preview.CurrentFrame;
-                using var trim = tmp.Clone(new Rect(1231, 266, 70, 35));
-                if (!tmp.Contains(yes))
-                {
-                    using var stream = tmp.ToStream(out var fileName);
-                    await Notifier.SendAsync(token, "問題が発生しました。画面を確認し、「あくん　だね？」「はい」「いいえ」まで手動で進めてください。", stream);
-                    Console.WriteLine("PANIC : Action required. Press Enter to continue...");
-                    Console.ReadLine();
-                }
-
-                await whale.RunAsync
-                (
-                    new Operation[] { }
-                        .Concat(Sequences.discardName).ToArray()
-                );
-            }
-            await whale.RunAsync
-            (
-                new Operation[] { }
-                    .Concat(Sequences.selectMale)
-                    .Concat(Sequences.decideName_Kirin)
-                    .Concat(Sequences.confirmName)
-                    .Concat(Sequences.skipOpening_2)
-                    .Concat(Sequences.showTrainerCard).ToArray()
-            );
-
-            using var currentFrame = preview.CurrentFrame;
-#if DEBUG
-            currentFrame.SaveImage(DateTime.Now.ToString("yyyyMMddHHmmssfff") + ".png");
-#endif
-            try
-            {
-                result = currentFrame.GetCurrentID(aroundID, tessConfig);
-            }
-            catch (Exception exception)
-            {
-                Console.Error.WriteLine(exception);
-            }
-            if (result != targetID.tid)
-            {
-                await whale.RunAsync(Sequences.reset);
-            }
-
-        } while (result != targetID.tid);
+        } while (true);
     }
 
     /// <summary>
@@ -257,7 +223,7 @@ class Application
     /// <param name="interval"></param>
     /// <param name="tolerance"></param>
     /// <returns></returns>
-    async Task<List<(uint Seed, List<long> Gaps)>> GetPivotSeedGapsPair(Rect aroundID, int n, int interval, int tolerance)
+    async Task<List<(uint Seed, List<long> Gaps)>> GetPivotSeedGapsPair()
     {
         List<ushort> tids;
 
@@ -276,7 +242,7 @@ class Application
             var count = 0;
             var getID = new TimerCallback(async _ =>
             {
-                if (count > (n - 1))
+                if (count > (countObserveID - 1))
                 {
                     return;
                 }
@@ -287,7 +253,7 @@ class Application
                 try
                 {
                     using var currentFrame = preview.CurrentFrame;
-                    id = currentFrame.GetCurrentID(aroundID, tessConfig);
+                    id = currentFrame.GetCurrentID();
                 }
                 catch (Exception exception)
                 {
@@ -304,24 +270,24 @@ class Application
             });
 
             stopwatch.Start();
-            using var timer = new Timer(getID, null, TimeSpan.Zero, TimeSpan.FromMilliseconds(interval));
+            using var timer = new Timer(getID, null, TimeSpan.Zero, interval);
             try
             {
-                await Task.Delay(TimeSpan.FromMilliseconds(interval * n), cancellationToken);
+                await Task.Delay(interval * countObserveID, cancellationToken);
             }
             catch (OperationCanceledException)
             {
                 Console.Error.WriteLine("=== Failed to get ID. ===");
                 await whale.RunAsync(Sequences.reset);
             }
-        } while (tids.Count() != n);
+        } while (tids.Count() != countObserveID);
 
         return tids.GetPivotSeedsFromTIDs(interval, tolerance);
     }
-    List<uint> GetInitialSeedCandidates(uint targetSeed, int tolerance)
+    List<uint> GetInitialSeedCandidates(uint targetSeed)
     {
         var candidates = new List<uint>();
-        for (var seed = targetSeed - (uint)tolerance; seed < targetSeed + (uint)tolerance + (uint)1; seed++)
+        for (var seed = targetSeed - (uint)tolerance.TotalMilliseconds; seed < targetSeed + (uint)tolerance.TotalMilliseconds + (uint)1; seed++)
         {
             candidates.Add((uint)seed);
         }
@@ -333,12 +299,12 @@ class Application
     /// <param name="aroundIndicator"></param>
     /// <param name="observations"></param>
     /// <returns></returns>
-    async Task<List<int>> GetIndicatorResults(Rect aroundIndicator, int observations)
+    async Task<List<int>> GetIndicatorResults()
     {
         var list = new List<int>();
 
         // observations回は針読み
-        for (var i = 0; i < observations; i++)
+        for (var i = 0; i < countObserveIndicator; i++)
         {
             await whale.RunAsync(new Operation[]
             {
@@ -410,5 +376,50 @@ class Application
             await whale.RunAsync(Sequences.discardName);
         }
         return list;
+    }
+    /// <summary>
+    /// 針読みに使用した分を差し引いて、消費を完了する
+    /// 
+    /// - 「きみは　おとこのこ？」で開始し、消費後に名前を確定、トレーナーカードを表示して終了する<br/>
+    /// </summary>
+    /// <param name="target"></param>
+    /// <returns></returns>
+    async Task AdvanceLeftover((uint Seed, int Advance) target)
+    {
+        using var yes = new Mat(Path.Join(AppContext.BaseDirectory, "1231-266-70-35.png")); // fixme
+        for (var i = 0; i < target.Advance - countObserveIndicator; i++)
+        {
+            await whale.RunAsync
+            (
+                new Operation[] { }
+                    .Concat(Sequences.selectMale)
+                    .Concat(Sequences.decideName_A).ToArray()
+            );
+
+            using var tmp = preview.CurrentFrame;
+            using var trim = tmp.Clone(new Rect(1231, 266, 70, 35));
+            if (!tmp.Contains(yes))
+            {
+                using var stream = tmp.ToStream(out var fileName);
+                await notifier.SendAsync("問題が発生しました。画面を確認し、「あくん　だね？」「はい」「いいえ」まで手動で進めてください。", stream);
+                Console.WriteLine("PANIC : Action required. Press Enter to continue...");
+                Console.ReadLine();
+            }
+
+            await whale.RunAsync
+            (
+                new Operation[] { }
+                    .Concat(Sequences.discardName).ToArray()
+            );
+        }
+        await whale.RunAsync
+        (
+            new Operation[] { }
+                .Concat(Sequences.selectMale)
+                .Concat(Sequences.decideName_Kirin)
+                .Concat(Sequences.confirmName)
+                .Concat(Sequences.skipOpening_2)
+                .Concat(Sequences.showTrainerCard).ToArray()
+        );
     }
 }

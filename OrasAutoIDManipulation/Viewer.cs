@@ -48,7 +48,8 @@ class Viewer : IDisposable
                     Console.WriteLine("Similar for {0}, restart viewer", timeout);
 
                     process.Kill();
-                    process.WaitForExit();
+                    process.Dispose();
+                    
                     process = Process.Start(path);
 
                     stopwatch.Stop();
