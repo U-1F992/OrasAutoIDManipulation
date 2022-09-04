@@ -22,6 +22,7 @@
     <None Update="serialport.config.json" CopyToOutputDirectory="Always" />
     <None Update="videocapture.config.json" CopyToOutputDirectory="Always" />
     <None Update="1231-266-70-35.png" CopyToOutputDirectory="Always" />
+    <None Update="masks\*" CopyToOutputDirectory="Always" />
   </ItemGroup>
 
 </Project>
