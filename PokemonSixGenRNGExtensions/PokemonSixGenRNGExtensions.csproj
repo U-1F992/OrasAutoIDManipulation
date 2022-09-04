@@ -7,8 +7,6 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="Hogei" Version="2.0.0" />
-    <PackageReference Include="OpenCvSharp4" Version="4.6.0.20220608" />
     <PackageReference Include="PokemonPRNG" Version="3.2.0" />
   </ItemGroup>
 

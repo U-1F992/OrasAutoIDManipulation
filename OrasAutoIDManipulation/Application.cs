@@ -9,17 +9,13 @@ class Application
     readonly LINENotify notifier;
 
     /// <summary>
-    /// 目標IDペア
-    /// </summary>
-    readonly (ushort tid, ushort sid) targetID;
-    /// <summary>
     /// 許容する操作の誤差
     /// </summary>
     readonly TimeSpan tolerance = TimeSpan.FromMilliseconds(500);
     /// <summary>
     /// 許容する最大消費数
     /// </summary>
-    readonly int maxAdvance;
+    readonly int maxAdvance = 15000;
     /// <summary>
     /// IDを見る回数
     /// </summary>
